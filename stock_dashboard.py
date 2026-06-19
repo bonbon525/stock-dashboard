@@ -1,291 +1,350 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from plotly.subplots import make_subplots
+from datetime import datetime, timedelta, date
 
-st.set_page_config(page_title="SEMIS // MARKET SCANNER", layout="wide", page_icon="⚡")
+st.set_page_config(page_title="Stock Dashboard", layout="wide", page_icon="📈")
 
-# ── Dark cyberpunk CSS ────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 html, body, [class*="css"] {
-    background-color: #080b12 !important;
-    color: #c9d1d9 !important;
-    font-family: 'Rajdhani', sans-serif !important;
-}
-
-/* Sidebar */
-[data-testid="stSidebar"] {
     background-color: #0d1117 !important;
-    border-right: 1px solid #00f5c420 !important;
+    color: #c9d1d9 !important;
+    font-family: 'Inter', sans-serif !important;
+}
+[data-testid="stSidebar"] {
+    background-color: #161b22 !important;
+    border-right: 1px solid #30363d !important;
 }
 [data-testid="stSidebar"] * { color: #c9d1d9 !important; }
-
-/* Main background */
-[data-testid="stAppViewContainer"] {
-    background: linear-gradient(135deg, #080b12 0%, #0d1117 100%) !important;
-}
-
-/* Metric cards */
+[data-testid="stAppViewContainer"] { background-color: #0d1117 !important; }
 [data-testid="stMetric"] {
-    background: #0d1117;
-    border: 1px solid #00f5c430;
-    border-radius: 4px;
-    padding: 16px 20px !important;
-    box-shadow: 0 0 12px #00f5c410;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px 16px !important;
 }
-[data-testid="stMetricLabel"] { color: #8b949e !important; font-size: 0.75rem !important; letter-spacing: 2px; text-transform: uppercase; }
-[data-testid="stMetricValue"] { color: #00f5c4 !important; font-family: 'Share Tech Mono', monospace !important; font-size: 1.6rem !important; }
-
-/* Divider */
-hr { border-color: #00f5c420 !important; }
-
-/* Dataframe */
-[data-testid="stDataFrame"] {
-    border: 1px solid #00f5c420 !important;
-    border-radius: 4px;
+[data-testid="stMetricLabel"] { color: #8b949e !important; font-size: 0.75rem !important; }
+[data-testid="stMetricValue"] { color: #c9d1d9 !important; font-size: 1.2rem !important; font-weight: 600 !important; }
+[data-testid="stDataFrame"] { border: 1px solid #30363d !important; border-radius: 6px; }
+h1 { color: #ffffff !important; }
+h2, h3 { color: #e6edf3 !important; }
+hr { border-color: #30363d !important; }
+.card-gainer {
+    background: #0d2818; border: 1px solid #238636;
+    border-radius: 8px; padding: 16px 20px; margin-top: 8px;
 }
-
-/* Headings */
-h1 {
-    font-family: 'Rajdhani', sans-serif !important;
-    font-weight: 700 !important;
-    letter-spacing: 4px !important;
-    color: #ffffff !important;
-    text-transform: uppercase !important;
-    border-bottom: 2px solid #00f5c4 !important;
-    padding-bottom: 8px !important;
+.card-loser {
+    background: #2d1419; border: 1px solid #f85149;
+    border-radius: 8px; padding: 16px 20px; margin-top: 8px;
 }
-h2, h3 {
-    font-family: 'Rajdhani', sans-serif !important;
-    font-weight: 500 !important;
-    letter-spacing: 3px !important;
-    color: #00f5c4 !important;
-    text-transform: uppercase !important;
-}
-
-/* Spinner */
-[data-testid="stSpinner"] { color: #00f5c4 !important; }
-
-/* Select / radio */
-[data-testid="stSelectbox"] select,
-[data-testid="stRadio"] label { color: #c9d1d9 !important; }
-
-/* Scrollbar */
+.card-price { font-size: 2rem; font-weight: 700; color: #ffffff; margin: 4px 0; }
+.badge-up   { background:#1a3d25; color:#3fb950; padding:3px 10px; border-radius:4px; font-size:0.85rem; font-weight:600; }
+.badge-down { background:#3d1519; color:#f85149; padding:3px 10px; border-radius:4px; font-size:0.85rem; font-weight:600; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: #0d1117; }
-::-webkit-scrollbar-thumb { background: #00f5c440; border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
-SEMIS = {
-    "NVDA":  "NVIDIA",
-    "AMD":   "AMD",
-    "INTC":  "Intel",
-    "QCOM":  "Qualcomm",
-    "AVGO":  "Broadcom",
-    "TXN":   "Texas Instruments",
-    "AMAT":  "Applied Materials",
-    "LRCX":  "Lam Research",
-    "KLAC":  "KLA Corp",
-    "MU":    "Micron",
-    "MRVL":  "Marvell",
-    "ADI":   "Analog Devices",
-    "MCHP":  "Microchip Tech",
-    "ON":    "ON Semiconductor",
-    "MPWR":  "Monolithic Power",
-    "SWKS":  "Skyworks",
-    "QRVO":  "Qorvo",
-    "LSCC":  "Lattice Semi",
-    "ENTG":  "Entegris",
-    "TER":   "Teradyne",
-    "ASML":  "ASML",
-    "TSM":   "TSMC",
-    "SLAB":  "Silicon Labs",
-    "CAMT":  "Camtek",
-    "ACLS":  "Axcelis Tech",
-    "WOLF":  "Wolfspeed",
-    "COHU":  "Cohu",
+# ── Stock universe ────────────────────────────────────────────────────────────
+STOCKS = {
+    # Semiconductors
+    "NVDA":  ("NVIDIA",                      "Semiconductors"),
+    "AMD":   ("Advanced Micro Devices",      "Semiconductors"),
+    "INTC":  ("Intel",                       "Semiconductors"),
+    "QCOM":  ("Qualcomm",                    "Semiconductors"),
+    "AVGO":  ("Broadcom",                    "Semiconductors"),
+    "TXN":   ("Texas Instruments",           "Semiconductors"),
+    "AMAT":  ("Applied Materials",           "Semiconductors"),
+    "LRCX":  ("Lam Research",               "Semiconductors"),
+    "KLAC":  ("KLA Corporation",             "Semiconductors"),
+    "MU":    ("Micron Technology",           "Semiconductors"),
+    "MRVL":  ("Marvell Technology",          "Semiconductors"),
+    "ADI":   ("Analog Devices",              "Semiconductors"),
+    "MCHP":  ("Microchip Tech",              "Semiconductors"),
+    "ON":    ("ON Semiconductor",            "Semiconductors"),
+    "MPWR":  ("Monolithic Power",            "Semiconductors"),
+    "SWKS":  ("Skyworks",                    "Semiconductors"),
+    "QRVO":  ("Qorvo",                       "Semiconductors"),
+    "LSCC":  ("Lattice Semi",               "Semiconductors"),
+    "ENTG":  ("Entegris",                    "Semiconductors"),
+    "TER":   ("Teradyne",                    "Semiconductors"),
+    "ASML":  ("ASML",                        "Semiconductors"),
+    "TSM":   ("Taiwan Semiconductor (TSMC)", "Semiconductors"),
+    # Big Tech
+    "AAPL":  ("Apple",                       "Big Tech"),
+    "MSFT":  ("Microsoft",                   "Big Tech"),
+    "GOOGL": ("Alphabet",                    "Big Tech"),
+    "META":  ("Meta Platforms",              "Big Tech"),
+    "AMZN":  ("Amazon",                      "Big Tech"),
+    "TSLA":  ("Tesla",                       "Big Tech"),
+    "IBM":   ("IBM",                         "Big Tech"),
+    "ORCL":  ("Oracle",                      "Big Tech"),
 }
 
-COLORS = {
-    "bg":       "#080b12",
-    "surface":  "#0d1117",
-    "accent":   "#00f5c4",
-    "red":      "#ff4d6d",
-    "green":    "#00f5c4",
-    "grid":     "#1c2333",
-    "text":     "#c9d1d9",
-    "muted":    "#8b949e",
-}
 
-@st.cache_data(ttl=900)
-def fetch_changes(tickers: list[str]) -> pd.DataFrame:
-    today = datetime.today().date()
-    start = today - timedelta(days=370)
-    raw = yf.download(tickers, start=str(start), end=str(today), auto_adjust=True, progress=False)
-    close = raw["Close"] if len(tickers) > 1 else raw[["Close"]].rename(columns={"Close": tickers[0]})
+def fmt_mktcap(v):
+    if v is None:   return "—"
+    if v >= 1e12:   return f"${v/1e12:.2f}T"
+    if v >= 1e9:    return f"${v/1e9:.2f}B"
+    return f"${v/1e6:.1f}M"
 
+
+@st.cache_data(ttl=300)
+def fetch_overview():
+    tickers = list(STOCKS.keys())
+    raw = yf.download(tickers, period="5d", auto_adjust=True, progress=False)
+    close = raw["Close"]
     rows = []
     for ticker in tickers:
         if ticker not in close.columns:
             continue
-        series = close[ticker].dropna()
-        if len(series) < 2:
+        s = close[ticker].dropna()
+        if len(s) < 2:
             continue
-        price_now = series.iloc[-1]
-        price_1m  = series.iloc[max(0, len(series) - 22)]
-        price_1y  = series.iloc[0]
+        price = float(s.iloc[-1])
+        prev  = float(s.iloc[-2])
+        chg   = price - prev
         rows.append({
-            "Ticker":      ticker,
-            "Company":     SEMIS.get(ticker, ticker),
-            "Price":       round(price_now, 2),
-            "1M Change %": round((price_now - price_1m) / price_1m * 100, 2),
-            "1Y Change %": round((price_now - price_1y) / price_1y * 100, 2),
+            "Ticker":   ticker,
+            "Company":  STOCKS[ticker][0],
+            "Sector":   STOCKS[ticker][1],
+            "Price":    round(price, 2),
+            "Change":   round(chg, 2),
+            "Change %": round(chg / prev * 100, 2),
         })
-    return pd.DataFrame(rows).set_index("Ticker")
+    df = pd.DataFrame(rows).set_index("Ticker")
+    return df.sort_values("Change %", ascending=False)
 
 
-def plotly_dark_layout(**kwargs):
-    return dict(
-        plot_bgcolor=COLORS["bg"],
-        paper_bgcolor=COLORS["surface"],
-        font=dict(family="Share Tech Mono, monospace", color=COLORS["text"], size=12),
-        xaxis=dict(gridcolor=COLORS["grid"], zerolinecolor=COLORS["muted"], tickfont=dict(color=COLORS["muted"])),
-        yaxis=dict(gridcolor=COLORS["grid"], zerolinecolor=COLORS["muted"], tickfont=dict(color=COLORS["muted"])),
-        **kwargs,
-    )
+@st.cache_data(ttl=300)
+def fetch_detail(ticker: str, start, end, sma_periods: tuple):
+    t   = yf.Ticker(ticker)
+    df  = t.history(start=str(start), end=str(end), auto_adjust=True)
+    if df.index.tzinfo is not None:
+        df.index = df.index.tz_convert(None)
+
+    for p in sma_periods:
+        df[f"SMA{p}"] = df["Close"].rolling(p).mean()
+
+    mkt_cap, pe, long_name = None, None, ticker
+    try:
+        fi = t.fast_info
+        mkt_cap = getattr(fi, "market_cap", None)
+    except Exception:
+        pass
+    try:
+        info = t.info
+        pe        = info.get("trailingPE")
+        long_name = info.get("longName", ticker)
+    except Exception:
+        pass
+
+    return df, mkt_cap, pe, long_name
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
-st.sidebar.markdown("## ⚡ SCANNER")
-sort_by   = st.sidebar.selectbox("SORT BY", ["1Y Change %", "1M Change %", "Price", "Company"])
-ascending = st.sidebar.checkbox("Ascending", value=False)
-show_chart = st.sidebar.radio("CHART VIEW", ["Monthly", "Yearly", "Both"])
+st.sidebar.markdown("### Chart settings")
+start_date = st.sidebar.date_input("Start date", date.today() - timedelta(days=365))
+end_date   = st.sidebar.date_input("End date",   date.today())
+sma20  = st.sidebar.checkbox("20-day SMA",  value=True)
+sma50  = st.sidebar.checkbox("50-day SMA",  value=True)
+sma200 = st.sidebar.checkbox("200-day SMA", value=False)
+st.sidebar.caption("💡 Many traders watch the 50-day and 200-day lines for the overall trend.")
 
-# ── Data ──────────────────────────────────────────────────────────────────────
-with st.spinner("Scanning markets…"):
-    df = fetch_changes(list(SEMIS.keys()))
-df = df.sort_values(sort_by, ascending=ascending)
+sma_periods = tuple(p for p, on in [(20, sma20), (50, sma50), (200, sma200)] if on)
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown("# ⚡ Semis // Market Scanner")
+st.markdown("# 📈 Stock Dashboard")
 st.markdown(
-    f"<span style='font-family:Share Tech Mono;color:#8b949e;font-size:0.8rem;letter-spacing:2px'>"
-    f"LAST UPDATE: {datetime.today().strftime('%Y-%m-%d %H:%M')} · REFRESH 15MIN · 27 TICKERS</span>",
-    unsafe_allow_html=True,
+    "Track 30 well-known semiconductor & tech companies, then dive into any one for a detailed chart. "
+    "New here? Look for the 💡 tips and check the glossary below the table."
 )
 
-# ── KPIs ──────────────────────────────────────────────────────────────────────
-gainers_1m = (df["1M Change %"] > 0).sum()
-gainers_1y = (df["1Y Change %"] > 0).sum()
-avg_1m = df["1M Change %"].mean()
-avg_1y = df["1Y Change %"].mean()
-top_1m = df["1M Change %"].idxmax()
-top_1y = df["1Y Change %"].idxmax()
+# ── Sector filter ─────────────────────────────────────────────────────────────
+sector_filter = st.radio("Filter by sector", ["All", "Semiconductors", "Big Tech"], horizontal=True)
+
+# ── Overview table ────────────────────────────────────────────────────────────
+with st.spinner("Loading market data…"):
+    df = fetch_overview()
+
+if sector_filter != "All":
+    df = df[df["Sector"] == sector_filter]
+
+def _color_num(val):
+    if val > 0: return "color: #3fb950; font-weight: 600"
+    if val < 0: return "color: #f85149; font-weight: 600"
+    return ""
+
+styled = (
+    df[["Company", "Sector", "Price", "Change", "Change %"]]
+    .style
+    .map(_color_num, subset=["Change", "Change %"])
+    .format({"Price": "${:.2f}", "Change": "{:+.2f}", "Change %": "{:+.2f}%"})
+    .set_properties(**{"background-color": "#161b22", "color": "#c9d1d9", "border-color": "#30363d"})
+)
+
+st.dataframe(styled, use_container_width=True, height=500)
+st.caption("💡 Sorted by today's biggest gainers first. Green = up today, red = down today.")
+
+# ── Top gainer / loser cards ──────────────────────────────────────────────────
+gainer = df.iloc[0]
+loser  = df.iloc[-1]
+
+col_g, col_l = st.columns(2)
+with col_g:
+    badge = "badge-up" if gainer["Change %"] >= 0 else "badge-down"
+    arrow = "↑" if gainer["Change %"] >= 0 else "↓"
+    st.markdown(
+        f'<div class="card-gainer">'
+        f'<div style="font-size:.85rem;color:#8b949e">🚀 Top gainer — {gainer["Company"]}</div>'
+        f'<div class="card-price">${gainer["Price"]:.2f}</div>'
+        f'<span class="{badge}">{arrow} {gainer["Change %"]:+.2f}%</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+with col_l:
+    badge = "badge-up" if loser["Change %"] >= 0 else "badge-down"
+    arrow = "↑" if loser["Change %"] >= 0 else "↓"
+    st.markdown(
+        f'<div class="card-loser">'
+        f'<div style="font-size:.85rem;color:#8b949e">📉 Top loser — {loser["Company"]}</div>'
+        f'<div class="card-price">${loser["Price"]:.2f}</div>'
+        f'<span class="{badge}">{arrow} {loser["Change %"]:+.2f}%</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+# ── Glossary ──────────────────────────────────────────────────────────────────
+with st.expander("📚 New to investing? Key terms explained"):
+    st.markdown("""
+- **Ticker**: the short code a stock trades under, e.g. `AAPL` is Apple.
+- **Price**: the most recent traded price for one share.
+- **Change %**: how much the price moved since the previous close — the main "is it up or down" number.
+- **Market Cap**: share price × total shares outstanding — a rough measure of how big the company is.
+- **P/E Ratio**: price ÷ earnings per share. Higher usually means investors expect more future growth.
+- **Volume**: number of shares traded. Big spikes often line up with earnings reports or big news.
+- **SMA (Simple Moving Average)**: the average closing price over the last N days — smooths out daily noise to reveal the trend.
+- **Candlestick chart**: each bar is one trading day — green means it closed higher than it opened, red means lower.
+""")
+
+st.divider()
+
+# ── Detail section ────────────────────────────────────────────────────────────
+st.markdown("## 🔎 Explore a company in detail")
+
+watchlist_opts = [f"{t} — {STOCKS[t][0]}" for t in STOCKS]
+
+col_pick, col_type = st.columns(2)
+with col_pick:
+    st.markdown("**Pick from your watchlist**")
+    picked = st.selectbox("watchlist", watchlist_opts, label_visibility="collapsed")
+    picked_ticker = picked.split(" — ")[0]
+with col_type:
+    st.markdown("**...or type any other ticker**")
+    custom = st.text_input("custom", placeholder="e.g. NVDA, TSLA", label_visibility="collapsed").strip().upper()
+
+detail_ticker = custom if custom else picked_ticker
+
+with st.spinner(f"Loading {detail_ticker}…"):
+    try:
+        hist, mkt_cap, pe, long_name = fetch_detail(detail_ticker, start_date, end_date, sma_periods)
+    except Exception as e:
+        st.error(f"Could not load data for **{detail_ticker}**: {e}")
+        st.stop()
+
+if hist.empty:
+    st.warning(f"No data found for **{detail_ticker}** in the selected date range.")
+    st.stop()
+
+last_close  = float(hist["Close"].iloc[-1])
+prev_close  = float(hist["Close"].iloc[-2]) if len(hist) > 1 else last_close
+day_chg     = last_close - prev_close
+day_chg_pct = day_chg / prev_close * 100
+period_high = float(hist["High"].max())
+period_low  = float(hist["Low"].min())
+avg_vol     = float(hist["Volume"].mean())
+
+st.markdown(f"## {long_name} ({detail_ticker})")
 
 k1, k2, k3, k4, k5, k6 = st.columns(6)
-k1.metric("TRACKED", len(df))
-k2.metric("1M GAINERS", f"{gainers_1m} / {len(df) - gainers_1m}")
-k3.metric("1Y GAINERS", f"{gainers_1y} / {len(df) - gainers_1y}")
-k4.metric("AVG 1M", f"{avg_1m:+.1f}%")
-k5.metric("AVG 1Y", f"{avg_1y:+.1f}%")
-k6.metric("TOP 1Y", top_1y)
+k1.metric("Last Close",  f"${last_close:.2f}", f"{day_chg:+.2f} ({day_chg_pct:+.2f}%)")
+k2.metric("Period High", f"${period_high:.2f}")
+k3.metric("Period Low",  f"${period_low:.2f}")
+k4.metric("Avg Volume",  f"{avg_vol/1e6:.1f}M" if avg_vol >= 1e6 else f"{avg_vol:,.0f}")
+k5.metric("Market Cap",  fmt_mktcap(mkt_cap))
+k6.metric("P/E Ratio",   f"{pe:.1f}" if pe else "—")
 
-st.divider()
+# ── Candlestick chart ─────────────────────────────────────────────────────────
+SMA_COLORS = {20: "#2196f3", 50: "#ff9800", 200: "#e91e63"}
 
-# ── Table ─────────────────────────────────────────────────────────────────────
-def color_pct(val):
-    if val > 30:   bg, fg = "#003d2e", "#00f5c4"
-    elif val > 10: bg, fg = "#00261c", "#00e6b5"
-    elif val > 0:  bg, fg = "#001a14", "#00c99c"
-    elif val > -10: bg, fg = "#2a0a10", "#ff4d6d"
-    elif val > -30: bg, fg = "#3d0c16", "#ff2d52"
-    else:           bg, fg = "#500d1a", "#ff1744"
-    return f"background-color: {bg}; color: {fg}; font-weight: 700; font-family: 'Share Tech Mono', monospace; letter-spacing: 1px"
-
-display_df = df[["Company", "Price", "1M Change %", "1Y Change %"]].copy()
-styled = (
-    display_df.style
-    .map(color_pct, subset=["1M Change %", "1Y Change %"])
-    .format({"Price": "${:.2f}", "1M Change %": "{:+.2f}%", "1Y Change %": "{:+.2f}%"})
-    .set_properties(**{"background-color": "#0d1117", "color": "#c9d1d9", "border-color": "#1c2333"})
+_base_layout = dict(
+    paper_bgcolor="#161b22",
+    plot_bgcolor="#0d1117",
+    font=dict(color="#8b949e", size=11),
+    legend=dict(bgcolor="#161b22", bordercolor="#30363d", borderwidth=1),
+    margin=dict(l=60, r=20, t=20, b=40),
+    hovermode="x unified",
 )
 
-st.markdown("### Performance Table")
-st.dataframe(styled, use_container_width=True, height=620)
-
-st.divider()
-
-# ── Bar charts ────────────────────────────────────────────────────────────────
-def make_bar(col: str, title: str):
-    s = df.sort_values(col, ascending=True)
-    colors = [COLORS["green"] if v >= 0 else COLORS["red"] for v in s[col]]
-    fig = go.Figure(go.Bar(
-        x=s[col],
-        y=s.index,
-        orientation="h",
-        marker=dict(color=colors, line=dict(width=0)),
-        text=[f"{v:+.1f}%" for v in s[col]],
-        textposition="outside",
-        textfont=dict(family="Share Tech Mono", size=10, color=COLORS["text"]),
-        hovertemplate="<b>%{y}</b><br>" + col + ": %{x:.2f}%<extra></extra>",
-    ))
-    fig.update_layout(
-        title=dict(text=title, font=dict(family="Rajdhani", size=16, color=COLORS["accent"]), x=0),
-        height=720,
-        margin=dict(l=80, r=80, t=50, b=30),
-        xaxis=dict(
-            zeroline=True, zerolinecolor=COLORS["muted"], zerolinewidth=1,
-            gridcolor=COLORS["grid"], tickfont=dict(family="Share Tech Mono", color=COLORS["muted"]),
-        ),
-        yaxis=dict(tickfont=dict(family="Share Tech Mono", size=11, color=COLORS["text"])),
-        **{k: v for k, v in plotly_dark_layout().items() if k not in ("xaxis", "yaxis")},
-    )
-    return fig
-
-if show_chart in ("Both", "Monthly"):
-    st.markdown("### 1-Month Change")
-    st.plotly_chart(make_bar("1M Change %", "1-MONTH PRICE CHANGE"), use_container_width=True)
-
-if show_chart in ("Both", "Yearly"):
-    st.markdown("### 1-Year Change")
-    st.plotly_chart(make_bar("1Y Change %", "1-YEAR PRICE CHANGE"), use_container_width=True)
-
-# ── Scatter ───────────────────────────────────────────────────────────────────
-st.divider()
-st.markdown("### 1M vs 1Y Momentum Map")
-
-fig_scatter = go.Figure()
-for _, row in df.reset_index().iterrows():
-    clr = COLORS["green"] if row["1Y Change %"] >= 0 else COLORS["red"]
-    fig_scatter.add_trace(go.Scatter(
-        x=[row["1M Change %"]],
-        y=[row["1Y Change %"]],
-        mode="markers+text",
-        marker=dict(size=max(8, min(row["Price"] ** 0.4, 36)), color=clr, opacity=0.85,
-                    line=dict(color=clr, width=1)),
-        text=[row["Ticker"]],
-        textposition="top center",
-        textfont=dict(family="Share Tech Mono", size=10, color=COLORS["text"]),
-        hovertemplate=f"<b>{row['Ticker']}</b> — {row['Company']}<br>"
-                      f"Price: ${row['Price']:.2f}<br>"
-                      f"1M: {row['1M Change %']:+.2f}%<br>"
-                      f"1Y: {row['1Y Change %']:+.2f}%<extra></extra>",
-        name=row["Ticker"],
-        showlegend=False,
-    ))
-
-fig_scatter.add_hline(y=0, line_dash="dot", line_color=COLORS["muted"], line_width=1)
-fig_scatter.add_vline(x=0, line_dash="dot", line_color=COLORS["muted"], line_width=1)
-fig_scatter.update_layout(
-    height=580,
-    xaxis_title="1M Change %",
-    yaxis_title="1Y Change %",
-    **plotly_dark_layout(),
+fig_candle = go.Figure()
+fig_candle.add_trace(go.Candlestick(
+    x=hist.index,
+    open=hist["Open"], high=hist["High"],
+    low=hist["Low"],   close=hist["Close"],
+    name=detail_ticker,
+    increasing_line_color="#3fb950", increasing_fillcolor="#3fb950",
+    decreasing_line_color="#f85149", decreasing_fillcolor="#f85149",
+))
+for p in sma_periods:
+    col_name = f"SMA{p}"
+    if col_name in hist.columns:
+        fig_candle.add_trace(go.Scatter(
+            x=hist.index, y=hist[col_name],
+            name=f"{p}-day SMA",
+            line=dict(color=SMA_COLORS.get(p, "#ffffff"), width=1.5),
+            hovertemplate=f"SMA{p}: %{{y:.2f}}<extra></extra>",
+        ))
+fig_candle.update_layout(
+    **_base_layout,
+    xaxis=dict(gridcolor="#30363d", rangeslider=dict(visible=False), showgrid=True),
+    yaxis=dict(gridcolor="#30363d", showgrid=True),
+    height=420,
 )
-st.plotly_chart(fig_scatter, use_container_width=True)
+st.plotly_chart(fig_candle, use_container_width=True)
+st.caption("💡 Each candle is one trading day. Green = closed higher than it opened; red = closed lower.")
+
+# ── Volume chart ──────────────────────────────────────────────────────────────
+vol_colors = [
+    "#3fb950" if c >= o else "#f85149"
+    for c, o in zip(hist["Close"], hist["Open"])
+]
+fig_vol = go.Figure(go.Bar(
+    x=hist.index, y=hist["Volume"],
+    marker_color=vol_colors,
+    marker_line_width=0,
+    showlegend=False,
+))
+fig_vol.update_layout(
+    **_base_layout,
+    xaxis=dict(gridcolor="#30363d", showgrid=True),
+    yaxis=dict(gridcolor="#30363d", showgrid=True),
+    height=220,
+)
+st.plotly_chart(fig_vol, use_container_width=True)
+st.caption("💡 Volume spikes often line up with earnings reports or big news.")
+
+# ── Raw data ──────────────────────────────────────────────────────────────────
+with st.expander("Raw data"):
+    show_cols = ["Close", "High", "Low", "Open", "Volume"] + [
+        f"SMA{p}" for p in sma_periods if f"SMA{p}" in hist.columns
+    ]
+    raw = hist[show_cols].sort_index(ascending=False).round(2)
+    st.dataframe(raw, use_container_width=True)
+    csv = raw.reset_index().to_csv(index=False)
+    st.download_button("Download CSV", csv, f"{detail_ticker}_data.csv", "text/csv")
