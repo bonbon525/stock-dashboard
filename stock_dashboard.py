@@ -127,7 +127,7 @@ def color_pct(val):
 display_df = df[["Company", "Price", "1M Change %", "1Y Change %"]].copy()
 styled = (
     display_df.style
-    .applymap(color_pct, subset=["1M Change %", "1Y Change %"])
+    .map(color_pct, subset=["1M Change %", "1Y Change %"])
     .format({"Price": "${:.2f}", "1M Change %": "{:+.2f}%", "1Y Change %": "{:+.2f}%"})
 )
 
